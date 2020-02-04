@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	iretry "github.com/hashicorp/memberlist/internal/retry"
 	"github.com/stretchr/testify/require"
 )
 
@@ -796,10 +797,9 @@ func TestMemberList_ProbeNode_Awareness_MissedNack(t *testing.T) {
 	// test is waiting for probeTimeMax and then doing some other work before it
 	// updates the awareness, so we need to wait some extra time. Rather than just
 	// add longer and longer sleeps, we'll retry a few times.
-	time.Sleep(probeTimeMax)
-	retry(t, 5, 10*time.Millisecond, func(failf func(string, ...interface{})) {
+	iretry.Run(t, func(r *iretry.R) {
 		if score := m1.GetHealthScore(); score != 1 {
-			failf("expected health score to decrement on missed nack. want %d, "+
+			r.Fatalf("expected health score to decrement on missed nack. want %d, "+
 				"got: %d", 1, score)
 		}
 	})
@@ -1472,6 +1472,87 @@ func TestMemberList_AliveNode_Refute(t *testing.T) {
 	}
 }
 
+func TestMemberList_AliveNode_Conflict(t *testing.T) {
+	m := GetMemberlist(t, func(c *Config) {
+		c.DeadNodeReclaimTime = 10 * time.Millisecond
+	})
+	defer m.Shutdown()
+
+	nodeName := "test"
+	a := alive{Node: nodeName, Addr: []byte{127, 0, 0, 1}, Port: 8000, Incarnation: 1, Vsn: m.config.BuildVsnArray()}
+	m.aliveNode(&a, nil, true)
+
+	// Clear queue
+	m.broadcasts.Reset()
+
+	// Conflicting alive
+	s := alive{
+		Node:        nodeName,
+		Addr:        []byte{127, 0, 0, 2},
+		Port:        9000,
+		Incarnation: 2,
+		Meta:        []byte("foo"),
+		Vsn:         m.config.BuildVsnArray(),
+	}
+	m.aliveNode(&s, nil, false)
+
+	state := m.nodeMap[nodeName]
+	if state.State != stateAlive {
+		t.Fatalf("should still be alive")
+	}
+	if state.Meta != nil {
+		t.Fatalf("meta should still be nil")
+	}
+	if bytes.Equal(state.Addr, []byte{127, 0, 0, 2}) {
+		t.Fatalf("address should not be updated")
+	}
+	if state.Port == 9000 {
+		t.Fatalf("port should not be updated")
+	}
+
+	// Check a broad cast is queued
+	if num := m.broadcasts.NumQueued(); num != 0 {
+		t.Fatalf("expected 0 queued messages: %d", num)
+	}
+
+	// Change the node to dead
+	d := dead{Node: nodeName, Incarnation: 2}
+	m.deadNode(&d)
+	m.broadcasts.Reset()
+
+	state = m.nodeMap[nodeName]
+	if state.State != stateDead {
+		t.Fatalf("should be dead")
+	}
+
+	time.Sleep(m.config.DeadNodeReclaimTime)
+
+	// New alive node
+	s2 := alive{
+		Node:        nodeName,
+		Addr:        []byte{127, 0, 0, 2},
+		Port:        9000,
+		Incarnation: 3,
+		Meta:        []byte("foo"),
+		Vsn:         m.config.BuildVsnArray(),
+	}
+	m.aliveNode(&s2, nil, false)
+
+	state = m.nodeMap[nodeName]
+	if state.State != stateAlive {
+		t.Fatalf("should still be alive")
+	}
+	if !bytes.Equal(state.Meta, []byte("foo")) {
+		t.Fatalf("meta should be updated")
+	}
+	if !bytes.Equal(state.Addr, []byte{127, 0, 0, 2}) {
+		t.Fatalf("address should be updated")
+	}
+	if state.Port != 9000 {
+		t.Fatalf("port should be updated")
+	}
+}
+
 func TestMemberList_SuspectNode_NoNode(t *testing.T) {
 	m := GetMemberlist(t, nil)
 	defer m.Shutdown()
@@ -1660,6 +1741,80 @@ func TestMemberList_DeadNode_NoNode(t *testing.T) {
 	}
 }
 
+func TestMemberList_DeadNodeLeft(t *testing.T) {
+	ch := make(chan NodeEvent, 1)
+
+	m := GetMemberlist(t, func(c *Config) {
+		c.Events = &ChannelEventDelegate{ch}
+	})
+	defer m.Shutdown()
+
+	nodeName := "node1"
+	s1 := alive{
+		Node:        nodeName,
+		Addr:        []byte{127, 0, 0, 1},
+		Port:        8000,
+		Incarnation: 1,
+		Vsn:         m.config.BuildVsnArray(),
+	}
+	m.aliveNode(&s1, nil, false)
+
+	// Read the join event
+	<-ch
+
+	d := dead{Node: nodeName, From: nodeName, Incarnation: 1}
+	m.deadNode(&d)
+
+	// Read the dead event
+	<-ch
+
+	state := m.nodeMap[nodeName]
+	if state.State != stateLeft {
+		t.Fatalf("Bad state")
+	}
+
+	// Check a broad cast is queued
+	if m.broadcasts.NumQueued() != 1 {
+		t.Fatalf("expected only one queued message")
+	}
+
+	// Check its a dead message
+	if messageType(m.broadcasts.orderedView(true)[0].b.Message()[0]) != deadMsg {
+		t.Fatalf("expected queued dead msg")
+	}
+
+	// Clear queue
+	// m.broadcasts.Reset()
+
+	// New alive node
+	s2 := alive{
+		Node:        nodeName,
+		Addr:        []byte{127, 0, 0, 2},
+		Port:        9000,
+		Incarnation: 3,
+		Meta:        []byte("foo"),
+		Vsn:         m.config.BuildVsnArray(),
+	}
+	m.aliveNode(&s2, nil, false)
+
+	// Read the join event
+	<-ch
+
+	state = m.nodeMap[nodeName]
+	if state.State != stateAlive {
+		t.Fatalf("should still be alive")
+	}
+	if !bytes.Equal(state.Meta, []byte("foo")) {
+		t.Fatalf("meta should be updated")
+	}
+	if !bytes.Equal(state.Addr, []byte{127, 0, 0, 2}) {
+		t.Fatalf("address should be updated")
+	}
+	if state.Port != 9000 {
+		t.Fatalf("port should be updated")
+	}
+}
+
 func TestMemberList_DeadNode(t *testing.T) {
 	ch := make(chan NodeEvent, 1)
 
@@ -1703,7 +1858,7 @@ func TestMemberList_DeadNode(t *testing.T) {
 		t.Fatalf("expected only one queued message")
 	}
 
-	// Check its a suspect message
+	// Check its a dead message
 	if messageType(m.broadcasts.orderedView(true)[0].b.Message()[0]) != deadMsg {
 		t.Fatalf("expected queued dead msg")
 	}
@@ -2035,6 +2190,37 @@ func TestMemberlist_GossipToDead(t *testing.T) {
 			failf("expected 2 messages from gossip")
 		}
 	})
+}
+
+func TestMemberlist_FailedRemote(t *testing.T) {
+	type test struct {
+		name     string
+		err      error
+		expected bool
+	}
+	tests := []test{
+		{"nil error", nil, false},
+		{"normal error", fmt.Errorf(""), false},
+		{"net.OpError for file", &net.OpError{Net: "file"}, false},
+		{"net.OpError for udp", &net.OpError{Net: "udp"}, false},
+		{"net.OpError for udp4", &net.OpError{Net: "udp4"}, false},
+		{"net.OpError for udp6", &net.OpError{Net: "udp6"}, false},
+		{"net.OpError for tcp", &net.OpError{Net: "tcp"}, false},
+		{"net.OpError for tcp4", &net.OpError{Net: "tcp4"}, false},
+		{"net.OpError for tcp6", &net.OpError{Net: "tcp6"}, false},
+		{"net.OpError for tcp with dial", &net.OpError{Net: "tcp", Op: "dial"}, true},
+		{"net.OpError for tcp with write", &net.OpError{Net: "tcp", Op: "write"}, true},
+		{"net.OpError for tcp with read", &net.OpError{Net: "tcp", Op: "read"}, true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			actual := failedRemote(test.err)
+			if actual != test.expected {
+				t.Fatalf("expected %t, got %t", test.expected, actual)
+			}
+		})
+	}
 }
 
 func TestMemberlist_PushPull(t *testing.T) {
