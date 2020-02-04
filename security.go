@@ -5,8 +5,12 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"io"
+
+	"golang.org/x/crypto/hkdf"
 )
 
 /*
@@ -23,13 +27,15 @@ type encryptionVersion uint8
 
 const (
 	minEncryptionVersion encryptionVersion = 0
-	maxEncryptionVersion encryptionVersion = 1
+	maxEncryptionVersion encryptionVersion = 2
 )
 
 const (
 	versionSize    = 1
 	nonceSize      = 12
 	tagSize        = 16
+	saltSize       = 64
+	kekIDSize      = 2
 	maxPadOverhead = 16
 	blockSize      = aes.BlockSize
 )
@@ -62,6 +68,8 @@ func encryptOverhead(vsn encryptionVersion) int {
 		return 45 // Version: 1, IV: 12, Padding: 16, Tag: 16
 	case 1:
 		return 29 // Version: 1, IV: 12, Tag: 16
+	case 2:
+		return 29 + saltSize + kekIDSize
 	default:
 		panic("unsupported version")
 	}
@@ -70,16 +78,74 @@ func encryptOverhead(vsn encryptionVersion) int {
 // encryptedLength is used to compute the buffer size needed
 // for a message of given length
 func encryptedLength(vsn encryptionVersion, inp int) int {
-	// If we are on version 1, there is no padding
-	if vsn >= 1 {
+	switch vsn {
+	case 2:
+		return versionSize + nonceSize + inp + tagSize + kekIDSize + saltSize
+	case 1:
 		return versionSize + nonceSize + inp + tagSize
+	default:
+		// Determine the padding size
+		padding := blockSize - (inp % blockSize)
+
+		// Sum the extra parts to get total size
+		return versionSize + nonceSize + inp + padding + tagSize
+	}
+}
+
+// encryptPayloadV2 is used to encrypt a message after deriving a key
+// from given KEK and Salt. We make use of AES in GCM mode.
+// New byte buffer is the version, kek-id, salt, nonce, ciphertext and tag
+func encryptPayloadV2(vsn encryptionVersion, kr *Keyring, msg []byte, data []byte, dst *bytes.Buffer) error {
+	if vsn < 2 {
+		return encryptPayload(vsn, kr.GetPrimaryKey(), msg, data, dst)
 	}
 
-	// Determine the padding size
-	padding := blockSize - (inp % blockSize)
+	kek, kekid := kr.KEK()
+	salt := kr.Salt()
 
-	// Sum the extra parts to get total size
-	return versionSize + nonceSize + inp + padding + tagSize
+	key := hkdf.Extract(sha256.New, kek, salt)
+
+	// Get the AES block cipher
+	aesBlock, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+
+	// Get the GCM cipher mode
+	gcm, err := cipher.NewGCM(aesBlock)
+	if err != nil {
+		return err
+	}
+
+	// Grow the buffer to make room for everything
+	offset := dst.Len()
+	dst.Grow(encryptedLength(vsn, len(msg)))
+
+	// Write the encryption version
+	dst.WriteByte(byte(vsn))
+
+	// Write the kek-id
+	k := make([]byte, 2)
+	binary.BigEndian.PutUint16(k, kekid)
+	dst.Write(k)
+
+	// Write the salt
+	dst.Write(salt)
+
+	// Add a random nonce
+	io.CopyN(dst, rand.Reader, nonceSize)
+	afterNonce := dst.Len()
+
+	// Encrypt message using GCM
+	slice := dst.Bytes()[offset:]
+	nonce := slice[versionSize : versionSize+nonceSize]
+
+	out := gcm.Seal(nil, nonce, msg, data)
+	// Truncate the plaintext, and write the cipher text
+	dst.Truncate(afterNonce)
+	dst.Write(out)
+
+	return nil
 }
 
 // encryptPayload is used to encrypt a message with a given key.
@@ -162,6 +228,43 @@ func decryptMessage(key, msg []byte, data []byte) ([]byte, error) {
 	return plain, nil
 }
 
+// decryptPayloadV2 is used to decrypt a message based on its version
+// for version 2, it uses the embedded kek-id to fetch KEK from keyring
+// and uses embedded salt and KEK to derive key
+// for other versions, it fetches the key from keyring directly
+func decryptPayloadV2(kr *Keyring, msg []byte, data []byte) ([]byte, error) {
+	// Ensure we have at least one byte
+	if len(msg) == 0 {
+		return nil, fmt.Errorf("Cannot decrypt empty payload")
+	}
+
+	// Verify the version
+	vsn := encryptionVersion(msg[0])
+	if vsn > maxEncryptionVersion {
+		return nil, fmt.Errorf("Unsupported encryption version %d", msg[0])
+	}
+
+	if vsn < 2 {
+		return decryptPayload(kr.GetKeys(), msg, data)
+	}
+
+	// Ensure the length is sane
+	if len(msg) < encryptedLength(vsn, 0) {
+		return nil, fmt.Errorf("Payload is too small to decrypt: %d", len(msg))
+	}
+
+	kekbuf := msg[versionSize : versionSize+kekIDSize]
+	kekid := binary.BigEndian.Uint16(kekbuf)
+	kek := kr.GetKEK(kekid)
+	if kek == nil {
+		return nil, fmt.Errorf("invalid kek id: %d", kekid)
+	}
+
+	salt := msg[versionSize+kekIDSize : versionSize+kekIDSize+saltSize]
+	key := hkdf.Extract(sha256.New, kek, salt)
+	return decryptMessage(key, msg[kekIDSize+saltSize:], data)
+}
+
 // decryptPayload is used to decrypt a message with a given key,
 // and verify it's contents. Any padding will be removed, and a
 // slice to the plaintext is returned. Decryption is done IN PLACE!
@@ -188,9 +291,8 @@ func decryptPayload(keys [][]byte, msg []byte, data []byte) ([]byte, error) {
 			// Remove the PKCS7 padding for vsn 0
 			if vsn == 0 {
 				return pkcs7decode(plain, aes.BlockSize), nil
-			} else {
-				return plain, nil
 			}
+			return plain, nil
 		}
 	}
 

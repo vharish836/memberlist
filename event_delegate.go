@@ -33,6 +33,7 @@ type ChannelEventDelegate struct {
 // ChannelEventDelegate.
 type NodeEventType int
 
+// NodeEventTypes
 const (
 	NodeJoin NodeEventType = iota
 	NodeLeave
@@ -48,14 +49,17 @@ type NodeEvent struct {
 	Node  *Node
 }
 
+// NotifyJoin ...
 func (c *ChannelEventDelegate) NotifyJoin(n *Node) {
 	c.Ch <- NodeEvent{NodeJoin, n}
 }
 
+// NotifyLeave ...
 func (c *ChannelEventDelegate) NotifyLeave(n *Node) {
 	c.Ch <- NodeEvent{NodeLeave, n}
 }
 
+// NotifyUpdate ...
 func (c *ChannelEventDelegate) NotifyUpdate(n *Node) {
 	c.Ch <- NodeEvent{NodeUpdate, n}
 }

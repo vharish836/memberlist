@@ -404,7 +404,7 @@ HANDLE_REMOTE_FAILURE:
 	// which protocol version we are speaking. That's why we've included a
 	// config option to turn this off if desired.
 	fallbackCh := make(chan bool, 1)
-	if (!m.config.DisableTcpPings) && (node.PMax >= 3) {
+	if (!m.config.DisableTCPPings) && (node.PMax >= 3) {
 		go func() {
 			defer close(fallbackCh)
 			didContact, err := m.sendPingAndWaitForAck(node.Address(), ping, deadline)
@@ -452,7 +452,7 @@ HANDLE_REMOTE_FAILURE:
 			awarenessDelta += (expectedNacks - nackCount)
 		}
 	} else {
-		awarenessDelta += 1
+		awarenessDelta++
 	}
 
 	// No acks received from target, suspect it as failed.
@@ -1113,9 +1113,8 @@ func (m *Memberlist) suspectNode(s *suspect) {
 		m.refute(state, s.Incarnation)
 		m.logger.Printf("[WARN] memberlist: Refuting a suspect message (from: %s)", s.From)
 		return // Do not mark ourself suspect
-	} else {
-		m.encodeAndBroadcast(s.Node, suspectMsg, s)
 	}
+	m.encodeAndBroadcast(s.Node, suspectMsg, s)
 
 	// Update metrics
 	metrics.IncrCounter([]string{"memberlist", "msg", "suspect"}, 1)

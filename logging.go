@@ -5,6 +5,7 @@ import (
 	"net"
 )
 
+// LogAddress ...
 func LogAddress(addr net.Addr) string {
 	if addr == nil {
 		return "from=<unknown address>"
@@ -13,6 +14,7 @@ func LogAddress(addr net.Addr) string {
 	return fmt.Sprintf("from=%s", addr.String())
 }
 
+// LogConn ...
 func LogConn(conn net.Conn) string {
 	if conn == nil {
 		return LogAddress(nil)

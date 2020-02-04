@@ -66,6 +66,7 @@ const (
 	lzwAlgo compressionType = iota
 )
 
+// constants
 const (
 	MetaMaxSize            = 512 // Maximum size for node meta data
 	compoundHeaderOverhead = 2   // Assumed header overhead
@@ -183,6 +184,9 @@ type msgHandoff struct {
 
 // encryptionVersion returns the encryption version to use
 func (m *Memberlist) encryptionVersion() encryptionVersion {
+	if m.config != nil && m.config.Keyring != nil && m.config.Keyring.Version() == 2 {
+		return 2
+	}
 	switch m.ProtocolVersion() {
 	case 1:
 		return 0
@@ -312,7 +316,7 @@ func (m *Memberlist) ingestPacket(buf []byte, from net.Addr, timestamp time.Time
 	// Check if encryption is enabled
 	if m.config.EncryptionEnabled() {
 		// Decrypt the payload
-		plain, err := decryptPayload(m.config.Keyring.GetKeys(), buf, nil)
+		plain, err := decryptPayloadV2(m.config.Keyring, buf, nil)
 		if err != nil {
 			if !m.config.GossipVerifyIncoming {
 				// Treat the message as plaintext
@@ -699,8 +703,7 @@ func (m *Memberlist) rawSendMsgPacket(addr string, node *Node, msg []byte) error
 	if m.config.EncryptionEnabled() && m.config.GossipVerifyOutgoing {
 		// Encrypt the payload
 		var buf bytes.Buffer
-		primaryKey := m.config.Keyring.GetPrimaryKey()
-		err := encryptPayload(m.encryptionVersion(), primaryKey, msg, nil, &buf)
+		err := encryptPayloadV2(m.encryptionVersion(), m.config.Keyring, msg, nil, &buf)
 		if err != nil {
 			m.logger.Printf("[ERR] memberlist: Encryption of message failed: %v", err)
 			return err
@@ -891,8 +894,7 @@ func (m *Memberlist) encryptLocalState(sendBuf []byte) ([]byte, error) {
 	buf.Write(sizeBuf)
 
 	// Write the encrypted cipher text to the buffer
-	key := m.config.Keyring.GetPrimaryKey()
-	err := encryptPayload(encVsn, key, sendBuf, buf.Bytes()[:5], &buf)
+	err := encryptPayloadV2(encVsn, m.config.Keyring, sendBuf, buf.Bytes()[:5], &buf)
 	if err != nil {
 		return nil, err
 	}
@@ -927,8 +929,7 @@ func (m *Memberlist) decryptRemoteState(bufConn io.Reader) ([]byte, error) {
 	cipherBytes := cipherText.Bytes()[5:]
 
 	// Decrypt the payload
-	keys := m.config.Keyring.GetKeys()
-	return decryptPayload(keys, cipherBytes, dataBytes)
+	return decryptPayloadV2(m.config.Keyring, cipherBytes, dataBytes)
 }
 
 // readStream is used to read from a stream connection, decrypting and

@@ -1390,10 +1390,10 @@ func (m *MockPing) getContents() (*Node, time.Duration, []byte) {
 	return m.other, m.rtt, m.payload
 }
 
-const DEFAULT_PAYLOAD = "whatever"
+const DefaultPayload = "whatever"
 
 func (m *MockPing) AckPayload() []byte {
-	return []byte(DEFAULT_PAYLOAD)
+	return []byte(DefaultPayload)
 }
 
 func TestMemberlist_PingDelegate(t *testing.T) {
@@ -1449,9 +1449,9 @@ func TestMemberlist_PingDelegate(t *testing.T) {
 		t.Fatalf("rtt should be greater than 0")
 	}
 
-	if bytes.Compare(mPayload, []byte(DEFAULT_PAYLOAD)) != 0 {
+	if bytes.Compare(mPayload, []byte(DefaultPayload)) != 0 {
 		t.Fatalf("incorrect payload. expected: %v; actual: %v",
-			[]byte(DEFAULT_PAYLOAD), mPayload)
+			[]byte(DefaultPayload), mPayload)
 	}
 }
 

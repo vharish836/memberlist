@@ -1,5 +1,4 @@
-/*
-memberlist is a library that manages cluster
+/*Package memberlist is a library that manages cluster
 membership and member failure detection using a gossip based protocol.
 
 The use cases for such a library are far-reaching: all distributed systems
@@ -31,6 +30,7 @@ import (
 	"github.com/miekg/dns"
 )
 
+// Memberlist is the main structure
 type Memberlist struct {
 	sequenceNum uint32 // Local sequence number
 	incarnation uint32 // Local incarnation number
@@ -110,7 +110,7 @@ func newMemberlist(conf *Config) (*Memberlist, error) {
 	}
 
 	if conf.LogOutput != nil && conf.Logger != nil {
-		return nil, fmt.Errorf("Cannot specify both LogOutput and Logger. Please choose a single log configuration setting.")
+		return nil, fmt.Errorf("cannot specify both LogOutput and Logger. Please choose a single log configuration setting")
 	}
 
 	logDest := conf.LogOutput
@@ -472,7 +472,7 @@ func (m *Memberlist) UpdateNode(timeout time.Duration) error {
 	return nil
 }
 
-// Deprecated: SendTo is deprecated in favor of SendBestEffort, which requires a node to
+// SendTo is deprecated in favor of SendBestEffort, which requires a node to
 // target.
 func (m *Memberlist) SendTo(to net.Addr, msg []byte) error {
 	// Encode as a user message
@@ -484,12 +484,12 @@ func (m *Memberlist) SendTo(to net.Addr, msg []byte) error {
 	return m.rawSendMsgPacket(to.String(), nil, buf)
 }
 
-// Deprecated: SendToUDP is deprecated in favor of SendBestEffort.
+// SendToUDP is deprecated in favor of SendBestEffort.
 func (m *Memberlist) SendToUDP(to *Node, msg []byte) error {
 	return m.SendBestEffort(to, msg)
 }
 
-// Deprecated: SendToTCP is deprecated in favor of SendReliable.
+// SendToTCP is deprecated in favor of SendReliable.
 func (m *Memberlist) SendToTCP(to *Node, msg []byte) error {
 	return m.SendReliable(to, msg)
 }

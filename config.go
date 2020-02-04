@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+//Config holds the memberlist instance configuration
 type Config struct {
 	// The name of this node. This must be unique in the cluster.
 	Name string
@@ -111,10 +112,10 @@ type Config struct {
 	ProbeInterval time.Duration
 	ProbeTimeout  time.Duration
 
-	// DisableTcpPings will turn off the fallback TCP pings that are attempted
+	// DisableTCPPings will turn off the fallback TCP pings that are attempted
 	// if the direct UDP ping fails. These get pipelined along with the
 	// indirect UDP pings.
-	DisableTcpPings bool
+	DisableTCPPings bool
 
 	// AwarenessMaxMultiplier will increase the probe interval if the node
 	// becomes aware that it might be degraded and not meeting the soft real
@@ -245,7 +246,7 @@ func DefaultLANConfig() *Config {
 		PushPullInterval:        30 * time.Second,       // Low frequency
 		ProbeTimeout:            500 * time.Millisecond, // Reasonable RTT time for LAN
 		ProbeInterval:           1 * time.Second,        // Failure check every second
-		DisableTcpPings:         false,                  // TCP pings are safe, even with mixed versions
+		DisableTCPPings:         false,                  // TCP pings are safe, even with mixed versions
 		AwarenessMaxMultiplier:  8,                      // Probe interval backs off to 8 seconds
 
 		GossipNodes:          3,                      // Gossip to 3 nodes
@@ -299,7 +300,7 @@ func DefaultLocalConfig() *Config {
 	return conf
 }
 
-// Returns whether or not encryption is enabled
+// EncryptionEnabled returns whether or not encryption is enabled
 func (c *Config) EncryptionEnabled() bool {
 	return c.Keyring != nil && len(c.Keyring.GetKeys()) > 0
 }
