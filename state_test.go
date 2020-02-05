@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	iretry "github.com/hashicorp/memberlist/internal/retry"
 	"github.com/stretchr/testify/require"
+	iretry "github.com/vharish836/memberlist/internal/retry"
 )
 
 func HostMemberlist(host string, t *testing.T, f func(*Config)) *Memberlist {

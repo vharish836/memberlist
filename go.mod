@@ -1,4 +1,4 @@
-module github.com/hashicorp/memberlist
+module github.com/vharish836/memberlist
 
 go 1.12
 
