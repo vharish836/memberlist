@@ -184,15 +184,7 @@ type msgHandoff struct {
 
 // encryptionVersion returns the encryption version to use
 func (m *Memberlist) encryptionVersion() encryptionVersion {
-	if m.config != nil && m.config.Keyring != nil && m.config.Keyring.Version() == 2 {
-		return 2
-	}
-	switch m.ProtocolVersion() {
-	case 1:
-		return 0
-	default:
-		return 1
-	}
+	return 2
 }
 
 // streamListen is a long running goroutine that pulls incoming streams from the
@@ -316,7 +308,7 @@ func (m *Memberlist) ingestPacket(buf []byte, from net.Addr, timestamp time.Time
 	// Check if encryption is enabled
 	if m.config.EncryptionEnabled() {
 		// Decrypt the payload
-		plain, err := decryptPayloadV2(m.config.Keyring, buf, nil)
+		plain, err := decryptPayload(m.config.Keyring, buf, nil)
 		if err != nil {
 			if !m.config.GossipVerifyIncoming {
 				// Treat the message as plaintext
@@ -703,7 +695,7 @@ func (m *Memberlist) rawSendMsgPacket(addr string, node *Node, msg []byte) error
 	if m.config.EncryptionEnabled() && m.config.GossipVerifyOutgoing {
 		// Encrypt the payload
 		var buf bytes.Buffer
-		err := encryptPayloadV2(m.encryptionVersion(), m.config.Keyring, msg, nil, &buf)
+		err := encryptPayload(m.encryptionVersion(), m.config.Keyring, msg, nil, &buf)
 		if err != nil {
 			m.logger.Printf("[ERR] memberlist: Encryption of message failed: %v", err)
 			return err
@@ -894,7 +886,7 @@ func (m *Memberlist) encryptLocalState(sendBuf []byte) ([]byte, error) {
 	buf.Write(sizeBuf)
 
 	// Write the encrypted cipher text to the buffer
-	err := encryptPayloadV2(encVsn, m.config.Keyring, sendBuf, buf.Bytes()[:5], &buf)
+	err := encryptPayload(encVsn, m.config.Keyring, sendBuf, buf.Bytes()[:5], &buf)
 	if err != nil {
 		return nil, err
 	}
@@ -929,7 +921,7 @@ func (m *Memberlist) decryptRemoteState(bufConn io.Reader) ([]byte, error) {
 	cipherBytes := cipherText.Bytes()[5:]
 
 	// Decrypt the payload
-	return decryptPayloadV2(m.config.Keyring, cipherBytes, dataBytes)
+	return decryptPayload(m.config.Keyring, cipherBytes, dataBytes)
 }
 
 // readStream is used to read from a stream connection, decrypting and

@@ -92,23 +92,6 @@ func newMemberlist(conf *Config) (*Memberlist, error) {
 			conf.ProtocolVersion, ProtocolVersionMin, ProtocolVersionMax)
 	}
 
-	if len(conf.SecretKey) > 0 {
-		if conf.Keyring == nil {
-			keyring, err := NewKeyring(nil, conf.SecretKey)
-			if err != nil {
-				return nil, err
-			}
-			conf.Keyring = keyring
-		} else {
-			if err := conf.Keyring.AddKey(conf.SecretKey); err != nil {
-				return nil, err
-			}
-			if err := conf.Keyring.UseKey(conf.SecretKey); err != nil {
-				return nil, err
-			}
-		}
-	}
-
 	if conf.LogOutput != nil && conf.Logger != nil {
 		return nil, fmt.Errorf("cannot specify both LogOutput and Logger. Please choose a single log configuration setting")
 	}

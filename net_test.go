@@ -2,6 +2,7 @@ package memberlist
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -253,41 +254,49 @@ func TestTCPPing(t *testing.T) {
 		tcp.SetDeadline(time.Now().Add(pingTimeMax))
 		conn, err := tcp.AcceptTCP()
 		if err != nil {
-			t.Fatalf("failed to connect: %s", err)
+			fmt.Printf("failed to connect: %s", err)
+			return
 		}
 		defer conn.Close()
 
 		msgType, _, dec, err := m.readStream(conn)
 		if err != nil {
-			t.Fatalf("failed to read ping: %s", err)
+			fmt.Printf("failed to read ping: %s", err)
+			return
 		}
 
 		if msgType != pingMsg {
-			t.Fatalf("expecting ping, got message type (%d)", msgType)
+			fmt.Printf("expecting ping, got message type (%d)", msgType)
+			return
 		}
 
 		var pingIn ping
 		if err := dec.Decode(&pingIn); err != nil {
-			t.Fatalf("failed to decode ping: %s", err)
+			fmt.Printf("failed to decode ping: %s", err)
+			return
 		}
 
 		if pingIn.SeqNo != pingOut.SeqNo {
-			t.Fatalf("sequence number isn't correct (%d) vs (%d)", pingIn.SeqNo, pingOut.SeqNo)
+			fmt.Printf("sequence number isn't correct (%d) vs (%d)", pingIn.SeqNo, pingOut.SeqNo)
+			return
 		}
 
 		if pingIn.Node != pingOut.Node {
-			t.Fatalf("node name isn't correct (%s) vs (%s)", pingIn.Node, pingOut.Node)
+			fmt.Printf("node name isn't correct (%s) vs (%s)", pingIn.Node, pingOut.Node)
+			return
 		}
 
 		ack := ackResp{pingIn.SeqNo, nil}
 		out, err := encode(ackRespMsg, &ack)
 		if err != nil {
-			t.Fatalf("failed to encode ack: %s", err)
+			fmt.Printf("failed to encode ack: %s", err)
+			return
 		}
 
 		err = m.rawSendMsgStream(conn, out.Bytes())
 		if err != nil {
-			t.Fatalf("failed to send ack: %s", err)
+			fmt.Printf("failed to send ack: %s", err)
+			return
 		}
 	}()
 	deadline := time.Now().Add(pingTimeout)
@@ -304,29 +313,34 @@ func TestTCPPing(t *testing.T) {
 		tcp.SetDeadline(time.Now().Add(pingTimeMax))
 		conn, err := tcp.AcceptTCP()
 		if err != nil {
-			t.Fatalf("failed to connect: %s", err)
+			fmt.Printf("failed to connect: %s", err)
+			return
 		}
 		defer conn.Close()
 
 		_, _, dec, err := m.readStream(conn)
 		if err != nil {
-			t.Fatalf("failed to read ping: %s", err)
+			fmt.Printf("failed to read ping: %s", err)
+			return
 		}
 
 		var pingIn ping
 		if err := dec.Decode(&pingIn); err != nil {
-			t.Fatalf("failed to decode ping: %s", err)
+			fmt.Printf("failed to decode ping: %s", err)
+			return
 		}
 
 		ack := ackResp{pingIn.SeqNo + 1, nil}
 		out, err := encode(ackRespMsg, &ack)
 		if err != nil {
-			t.Fatalf("failed to encode ack: %s", err)
+			fmt.Printf("failed to encode ack: %s", err)
+			return
 		}
 
 		err = m.rawSendMsgStream(conn, out.Bytes())
 		if err != nil {
-			t.Fatalf("failed to send ack: %s", err)
+			fmt.Printf("failed to send ack: %s", err)
+			return
 		}
 	}()
 	deadline = time.Now().Add(pingTimeout)
@@ -343,24 +357,28 @@ func TestTCPPing(t *testing.T) {
 		tcp.SetDeadline(time.Now().Add(pingTimeMax))
 		conn, err := tcp.AcceptTCP()
 		if err != nil {
-			t.Fatalf("failed to connect: %s", err)
+			fmt.Printf("failed to connect: %s", err)
+			return
 		}
 		defer conn.Close()
 
 		_, _, _, err = m.readStream(conn)
 		if err != nil {
-			t.Fatalf("failed to read ping: %s", err)
+			fmt.Printf("failed to read ping: %s", err)
+			return
 		}
 
 		bogus := indirectPingReq{}
 		out, err := encode(indirectPingMsg, &bogus)
 		if err != nil {
-			t.Fatalf("failed to encode bogus msg: %s", err)
+			fmt.Printf("failed to encode bogus msg: %s", err)
+			return
 		}
 
 		err = m.rawSendMsgStream(conn, out.Bytes())
 		if err != nil {
-			t.Fatalf("failed to send bogus msg: %s", err)
+			fmt.Printf("failed to send bogus msg: %s", err)
+			return
 		}
 	}()
 	deadline = time.Now().Add(pingTimeout)
@@ -603,8 +621,17 @@ func TestSendMsg_Piggyback(t *testing.T) {
 
 func TestEncryptDecryptState(t *testing.T) {
 	state := []byte("this is our internal state...")
+	mkm := make([]byte, 256)
+	_, err := io.ReadFull(rand.Reader, mkm)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	kr, err := NewKeyring(mkm, 0)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
 	config := &Config{
-		SecretKey:       []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+		Keyring:         kr,
 		ProtocolVersion: ProtocolVersionMax,
 	}
 	config.Logger = testLogger(t)
@@ -730,7 +757,13 @@ func TestIngestPacket_CRC(t *testing.T) {
 func TestGossip_MismatchedKeys(t *testing.T) {
 	// Create two agents with different gossip keys
 	c1 := testConfig(t)
-	c1.SecretKey = []byte("4W6DGn2VQVqDEceOdmuRTQ==")
+	mkm1 := make([]byte, 256)
+	_, err := io.ReadFull(rand.Reader, mkm1)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	kr1, err := NewKeyring(mkm1, 0)
+	c1.Keyring = kr1
 
 	m1, err := Create(c1)
 	require.NoError(t, err)
@@ -740,7 +773,13 @@ func TestGossip_MismatchedKeys(t *testing.T) {
 
 	c2 := testConfig(t)
 	c2.BindPort = bindPort
-	c2.SecretKey = []byte("XhX/w702/JKKK7/7OtM9Ww==")
+	mkm2 := make([]byte, 256)
+	_, err = io.ReadFull(rand.Reader, mkm2)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	kr2, err := NewKeyring(mkm2, 0)
+	c2.Keyring = kr2
 
 	m2, err := Create(c2)
 	require.NoError(t, err)

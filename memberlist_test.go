@@ -2,7 +2,9 @@ package memberlist
 
 import (
 	"bytes"
+	"crypto/rand"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -192,43 +194,9 @@ func TestCreate_protocolVersion(t *testing.T) {
 	}
 }
 
-func TestCreate_secretKey(t *testing.T) {
-	cases := []struct {
-		name string
-		key  []byte
-		err  bool
-	}{
-		{"size-0", make([]byte, 0), false},
-		{"abc", []byte("abc"), true},
-		{"size-16", make([]byte, 16), false},
-		{"size-38", make([]byte, 38), true},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			c := DefaultLANConfig()
-			c.BindAddr = getBindAddr().String()
-			c.SecretKey = tc.key
-			c.Logger = testLogger(t)
-
-			m, err := Create(c)
-			if err == nil {
-				require.NoError(t, m.Shutdown())
-			}
-
-			if tc.err && err == nil {
-				t.Fatalf("Should've failed with key: %#v", tc.key)
-			} else if !tc.err && err != nil {
-				t.Fatalf("Key '%#v' error: %s", tc.key, err)
-			}
-		})
-	}
-}
-
 func TestCreate_secretKeyEmpty(t *testing.T) {
 	c := DefaultLANConfig()
 	c.BindAddr = getBindAddr().String()
-	c.SecretKey = make([]byte, 0)
 	c.Logger = testLogger(t)
 
 	m, err := Create(c)
@@ -245,7 +213,12 @@ func TestCreate_keyringOnly(t *testing.T) {
 	c.BindAddr = getBindAddr().String()
 	c.Logger = testLogger(t)
 
-	keyring, err := NewKeyring(nil, make([]byte, 16))
+	mkm := make([]byte, 256)
+	_, err := io.ReadFull(rand.Reader, mkm)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	keyring, err := NewKeyring(mkm, 0)
 	require.NoError(t, err)
 	c.Keyring = keyring
 
@@ -263,10 +236,14 @@ func TestCreate_keyringAndSecretKey(t *testing.T) {
 	c.BindAddr = getBindAddr().String()
 	c.Logger = testLogger(t)
 
-	keyring, err := NewKeyring(nil, make([]byte, 16))
+	mkm := make([]byte, 256)
+	_, err := io.ReadFull(rand.Reader, mkm)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	keyring, err := NewKeyring(mkm, 0)
 	require.NoError(t, err)
 	c.Keyring = keyring
-	c.SecretKey = []byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 
 	m, err := Create(c)
 	require.NoError(t, err)
@@ -276,9 +253,11 @@ func TestCreate_keyringAndSecretKey(t *testing.T) {
 		t.Fatalf("Expected encryption to be enabled")
 	}
 
-	ringKeys := c.Keyring.GetKeys()
-	if !bytes.Equal(c.SecretKey, ringKeys[0]) {
-		t.Fatalf("Unexpected primary key %v", ringKeys[0])
+	kek, _ := c.Keyring.KDK()
+
+	ringKeys := c.Keyring.GetKDK(0)
+	if !bytes.Equal(kek, ringKeys) {
+		t.Fatalf("Unexpected primary key %v", ringKeys)
 	}
 }
 
@@ -430,14 +409,19 @@ func TestMemberList_ResolveAddr_TCP_First(t *testing.T) {
 		NotifyStartedFunc: wg.Done,
 	}
 	defer server.Shutdown()
-
+	errCh := make(chan error, 1)
 	go func() {
 		if err := server.ListenAndServe(); err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
-			t.Fatalf("err: %v", err)
+			errCh <- err
 		}
 	}()
 	wg.Wait()
-
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	tmpFile, err := ioutil.TempFile("", "")
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -1626,7 +1610,6 @@ func TestMemberlist_EncryptedGossipTransition(t *testing.T) {
 
 	// Resurrect the first node with the first stage of gossip transition settings.
 	conf0 = newConfig("m0", m0.config.BindAddr)
-	conf0.SecretKey = []byte("Hi16ZXu2lNCRVwtr20khAg==")
 	conf0.GossipVerifyIncoming = false
 	conf0.GossipVerifyOutgoing = false
 	m0 = createOK(conf0)
@@ -1640,7 +1623,6 @@ func TestMemberlist_EncryptedGossipTransition(t *testing.T) {
 
 	// Resurrect the second node with the first stage of gossip transition settings.
 	conf1 = newConfig("m1", m1.config.BindAddr)
-	conf1.SecretKey = []byte("Hi16ZXu2lNCRVwtr20khAg==")
 	conf1.GossipVerifyIncoming = false
 	conf1.GossipVerifyOutgoing = false
 	m1 = createOK(conf1)
@@ -1659,7 +1641,6 @@ func TestMemberlist_EncryptedGossipTransition(t *testing.T) {
 
 	// Resurrect the first node with the second stage of gossip transition settings.
 	conf0 = newConfig("m0", m0.config.BindAddr)
-	conf0.SecretKey = []byte("Hi16ZXu2lNCRVwtr20khAg==")
 	conf0.GossipVerifyIncoming = false
 	m0 = createOK(conf0)
 	defer m0.Shutdown()
@@ -1672,7 +1653,6 @@ func TestMemberlist_EncryptedGossipTransition(t *testing.T) {
 
 	// Resurrect the second node with the second stage of gossip transition settings.
 	conf1 = newConfig("m1", m1.config.BindAddr)
-	conf1.SecretKey = []byte("Hi16ZXu2lNCRVwtr20khAg==")
 	conf1.GossipVerifyIncoming = false
 	m1 = createOK(conf1)
 	defer m1.Shutdown()
@@ -1691,7 +1671,6 @@ func TestMemberlist_EncryptedGossipTransition(t *testing.T) {
 
 	// Resurrect the first node with the final stage of gossip transition settings.
 	conf0 = newConfig("m0", m0.config.BindAddr)
-	conf0.SecretKey = []byte("Hi16ZXu2lNCRVwtr20khAg==")
 	m0 = createOK(conf0)
 	defer m0.Shutdown()
 
@@ -1704,7 +1683,6 @@ func TestMemberlist_EncryptedGossipTransition(t *testing.T) {
 
 	// Resurrect the second node with the final stage of gossip transition settings.
 	conf1 = newConfig("m1", m1.config.BindAddr)
-	conf1.SecretKey = []byte("Hi16ZXu2lNCRVwtr20khAg==")
 	m1 = createOK(conf1)
 	defer m1.Shutdown()
 

@@ -2,61 +2,36 @@ package memberlist
 
 import (
 	"bytes"
-	"reflect"
+	"crypto/rand"
+	"io"
 	"testing"
 )
 
-func TestPKCS7(t *testing.T) {
-	for i := 0; i <= 255; i++ {
-		// Make a buffer of size i
-		buf := []byte{}
-		for j := 0; j < i; j++ {
-			buf = append(buf, byte(i))
-		}
-
-		// Copy to bytes buffer
-		inp := bytes.NewBuffer(nil)
-		inp.Write(buf)
-
-		// Pad this out
-		pkcs7encode(inp, 0, 16)
-
-		// Unpad
-		dec := pkcs7decode(inp.Bytes(), 16)
-
-		// Ensure equivilence
-		if !reflect.DeepEqual(buf, dec) {
-			t.Fatalf("mismatch: %v %v", buf, dec)
-		}
+func TestEncryptDecrypt(t *testing.T) {
+	mkm := make([]byte, 256)
+	_, err := io.ReadFull(rand.Reader, mkm)
+	if err != nil {
+		t.Fatalf("err: %v", err)
 	}
-
-}
-
-func TestEncryptDecrypt_V0(t *testing.T) {
-	encryptDecryptVersioned(0, t)
-}
-
-func TestEncryptDecrypt_V1(t *testing.T) {
-	encryptDecryptVersioned(1, t)
-}
-
-func encryptDecryptVersioned(vsn encryptionVersion, t *testing.T) {
-	k1 := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+	kr, err := NewKeyring(mkm, 0)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
 	plaintext := []byte("this is a plain text message")
 	extra := []byte("random data")
 
 	var buf bytes.Buffer
-	err := encryptPayload(vsn, k1, plaintext, extra, &buf)
+	err = encryptPayload(2, kr, plaintext, extra, &buf)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 
-	expLen := encryptedLength(vsn, len(plaintext))
+	expLen := encryptedLength(2, len(plaintext))
 	if buf.Len() != expLen {
 		t.Fatalf("output length is unexpected %d %d %d", len(plaintext), buf.Len(), expLen)
 	}
 
-	msg, err := decryptPayload([][]byte{k1}, buf.Bytes(), extra)
+	msg, err := decryptPayload(kr, buf.Bytes(), extra)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

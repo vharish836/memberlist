@@ -310,19 +310,20 @@ func (m *Memberlist) probeNode(node *nodeState) {
 		}
 	} else {
 		var msgs [][]byte
-		if buf, err := encode(pingMsg, &ping); err != nil {
+		buf, err := encode(pingMsg, &ping)
+		if err != nil {
 			m.logger.Printf("[ERR] memberlist: Failed to encode ping message: %s", err)
 			return
-		} else {
-			msgs = append(msgs, buf.Bytes())
 		}
+		msgs = append(msgs, buf.Bytes())
+
 		s := suspect{Incarnation: node.Incarnation, Node: node.Name, From: m.config.Name}
-		if buf, err := encode(suspectMsg, &s); err != nil {
+		buf, err = encode(suspectMsg, &s)
+		if err != nil {
 			m.logger.Printf("[ERR] memberlist: Failed to encode suspect message: %s", err)
 			return
-		} else {
-			msgs = append(msgs, buf.Bytes())
 		}
+		msgs = append(msgs, buf.Bytes())
 
 		compound := makeCompoundMessage(msgs)
 		if err := m.rawSendMsgPacket(addr, &node.Node, compound.Bytes()); err != nil {

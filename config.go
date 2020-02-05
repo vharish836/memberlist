@@ -157,15 +157,6 @@ type Config struct {
 	// utilization. This is only available starting at protocol version 1.
 	EnableCompression bool
 
-	// SecretKey is used to initialize the primary encryption key in a keyring.
-	// The primary encryption key is the only key used to encrypt messages and
-	// the first key used while attempting to decrypt messages. Providing a
-	// value for this primary key will enable message-level encryption and
-	// verification, and automatically install the key onto the keyring.
-	// The value should be either 16, 24, or 32 bytes to select AES-128,
-	// AES-192, or AES-256.
-	SecretKey []byte
-
 	// The keyring holds all of the encryption keys used internally. It is
 	// automatically initialized using the SecretKey and SecretKeys values.
 	Keyring *Keyring
@@ -257,8 +248,7 @@ func DefaultLANConfig() *Config {
 
 		EnableCompression: true, // Enable compression by default
 
-		SecretKey: nil,
-		Keyring:   nil,
+		Keyring: nil,
 
 		DNSConfigPath: "/etc/resolv.conf",
 
@@ -302,5 +292,5 @@ func DefaultLocalConfig() *Config {
 
 // EncryptionEnabled returns whether or not encryption is enabled
 func (c *Config) EncryptionEnabled() bool {
-	return c.Keyring != nil && len(c.Keyring.GetKeys()) > 0
+	return c.Keyring != nil
 }
