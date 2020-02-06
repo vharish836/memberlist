@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync/atomic"
 )
 
 // LogAddress ...
@@ -37,7 +38,7 @@ const (
 // it logs the output to given io.Writer or log.Logger
 type LevelLogger struct {
 	logger *log.Logger
-	level  int
+	level  uint32
 }
 
 // NewStreamLogger creates a LevelLogger that writes to given io.Writer
@@ -60,7 +61,7 @@ func NewLevelLogger(l *log.Logger, lvl int) *LevelLogger {
 func (l *LevelLogger) SetLogLevel(lvl int) {
 	switch lvl {
 	case LogLevelDebug, LogLevelInfo, LogLevelWarning, LogLevelError:
-		l.level = lvl
+		atomic.StoreUint32(&l.level, uint32(lvl))
 	}
 }
 
