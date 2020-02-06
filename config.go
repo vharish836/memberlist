@@ -194,6 +194,10 @@ type Config struct {
 	// at the same time.
 	Logger *log.Logger
 
+	// LogLevel determines the logging events sent to LogOutput or Logger
+	// It must be one of LogLevelDebug, LogLevelInfo, LogLevelWarning, LogLevelError
+	LogLevel int
+
 	// Size of Memberlist's internal channel which handles UDP messages. The
 	// size of this determines the size of the queue which Memberlist will keep
 	// while UDP messages are handled.
