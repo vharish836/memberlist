@@ -222,7 +222,7 @@ func (m *Memberlist) Join(existing []string) (int, error) {
 
 		for _, addr := range addrs {
 			hp := joinHostPort(addr.ip.String(), addr.port)
-			if err := m.pushPullNode(hp, true); err != nil {
+			if err := m.PushPullNode(hp, true); err != nil {
 				err = fmt.Errorf("Failed to join %s: %v", addr.ip, err)
 				errs = multierror.Append(errs, err)
 				m.logger.Printf("[DEBUG] memberlist: %v", err)

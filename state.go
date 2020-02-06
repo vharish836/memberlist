@@ -592,13 +592,13 @@ func (m *Memberlist) pushPull() {
 	node := nodes[0]
 
 	// Attempt a push pull
-	if err := m.pushPullNode(node.Address(), false); err != nil {
+	if err := m.PushPullNode(node.Address(), false); err != nil {
 		m.logger.Printf("[ERR] memberlist: Push/Pull with %s failed: %s", node.Name, err)
 	}
 }
 
-// pushPullNode does a complete state exchange with a specific node.
-func (m *Memberlist) pushPullNode(addr string, join bool) error {
+// PushPullNode does a complete state exchange with a specific node.
+func (m *Memberlist) PushPullNode(addr string, join bool) error {
 	defer metrics.MeasureSince([]string{"memberlist", "pushPullNode"}, time.Now())
 
 	// Attempt to send and receive with the node
